@@ -1,11 +1,11 @@
 // server.js
-// This is your ONLY backend file. Deploy this folder to Render.
-// It exposes one endpoint: POST /chat
+// Backend with TWO endpoints: /chat (text Q&A) and /transcribe (voice-to-text)
 
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
+const multer = require('multer');
 const { GoogleGenAI } = require('@google/genai');
 const Groq = require('groq-sdk');
 
@@ -13,8 +13,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); // embeddings only
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY }); // answer generation
+const upload = multer({ dest: 'uploads/' });
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 const knowledgeBase = JSON.parse(fs.readFileSync('knowledge-base.json', 'utf-8'));
 
 const SIMILARITY_THRESHOLD = 0.5;
@@ -85,6 +87,26 @@ app.post('/chat', async (req, res) => {
   } catch (err) {
     console.error('Error in /chat:', err.message);
     res.status(500).json({ error: 'Something went wrong on the server' });
+  }
+});
+
+app.post('/transcribe', upload.single('audio'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No audio file received' });
+
+    const transcription = await groq.audio.transcriptions.create({
+      file: fs.createReadStream(req.file.path),
+      model: 'whisper-large-v3-turbo',
+      temperature: 0,
+      response_format: 'verbose_json',
+    });
+
+    fs.unlink(req.file.path, () => {});
+
+    res.json({ text: transcription.text });
+  } catch (err) {
+    console.error('Error in /transcribe:', err.message);
+    res.status(500).json({ error: 'Transcription failed' });
   }
 });
 
